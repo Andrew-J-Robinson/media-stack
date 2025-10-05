@@ -1,0 +1,285 @@
+# https://github.com/qdm12/gluetun
+# https://github.com/qdm12/gluetun-wiki
+version: "3"
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - VPN_SERVICE_PROVIDER=airvpn
+      - SERVER_COUNTRIES=United States
+      - OPENVPN_CIPHERS=AES-256-GCM
+      - FIREWALL_VPN_INPUT_PORTS=51093
+      - VPN_TYPE=openvpn
+    ports:
+      - 8181:8181/tcp   # <-- ports go here, not in bittorent service
+      - 51413:51413/tcp
+      - 51413:51413/udp
+      - 6881:6881
+      - 6881:6881/udp
+    volumes:
+      - ./configs/openvpn:/gluetun 
+    restart: no
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.qbittorrent.entrypoints=http"
+      - "traefik.http.routers.qbittorrent.rule=Host(`qbittorrent.local.zeebali.com`)"
+      - "traefik.http.middlewares.qbittorrent-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.qbittorrent.middlewares=qbittorrent-https-redirect"
+      - "traefik.http.routers.qbittorrent-secure.entrypoints=https"
+      - "traefik.http.routers.qbittorrent-secure.rule=Host(`qbittorrent.local.zeebali.com`)"
+      - "traefik.http.routers.qbittorrent-secure.tls=true"
+      - "traefik.http.routers.qbittorrent-secure.service=qbittorrent"
+      - "traefik.http.services.qbittorrent.loadbalancer.server.port=8181"
+      - "traefik.docker.network=proxy"
+    networks:
+      - proxy
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:5.1.2
+    container_name: qbittorrent
+    network_mode: "service:gluetun" # <-- important bit, don't forget
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - WEBUI_PORT=8181
+    volumes:
+      - ./configs/qbittorrent:/config
+      - /mnt/truenas/downloads/:/downloads
+    restart: no
+
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      # Docker mod for Intel Nuc
+      - DOCKER_MODS=linuxserver/mods:jellyfin-opencl-intel
+    volumes:
+      - ./configs/jellyfin:/config
+      - /mnt/truenas/downloads/media/:/data/
+    ports:
+      - 8096:8096
+      - 8920:8920 #optional
+      - 7359:7359/udp #optional
+      - 1900:1900/udp #optional
+    devices:
+      - /dev/dri:/dev/dri
+    restart: no
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jellyfin.entrypoints=http"
+      - "traefik.http.routers.jellyfin.rule=Host(`jellyfin.local.zeebali.com`)"
+      - "traefik.http.middlewares.jellyfin-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.jellyfin.middlewares=jellyfin-https-redirect"
+      - "traefik.http.routers.jellyfin-secure.entrypoints=https"
+      - "traefik.http.routers.jellyfin-secure.rule=Host(`jellyfin.local.zeebali.com`)"
+      - "traefik.http.routers.jellyfin-secure.tls=true"
+      - "traefik.http.routers.jellyfin-secure.service=jellyfin"
+      - "traefik.http.services.jellyfin.loadbalancer.server.port=8096"
+      - "traefik.docker.network=proxy"
+    networks:
+      - proxy
+
+  sonarr:
+    image: linuxserver/sonarr:4.0.15
+    container_name: sonarr
+    restart: no
+    environment:
+      - TZ=Etc/UTC # Specify a timezone to use
+      - PUID=1000 # User ID to run as
+      - PGID=1000 # Group ID to run as
+    volumes:
+      - /mnt/truenas/downloads:/downloads # Location of all your media
+      - ./configs/sonarr:/config # Contains all relevant configuration files.
+    ports:
+      - 8989:8989/tcp # Web UI
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sonarr.entrypoints=http"
+      - "traefik.http.routers.sonarr.rule=Host(`sonarr.local.zeebali.com`)"
+      - "traefik.http.middlewares.sonarr-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.sonarr.middlewares=sonarr-https-redirect"
+      - "traefik.http.routers.sonarr-secure.entrypoints=https"
+      - "traefik.http.routers.sonarr-secure.rule=Host(`sonarr.local.zeebali.com`)"
+      - "traefik.http.routers.sonarr-secure.tls=true"
+      - "traefik.http.routers.sonarr-secure.service=sonarr"
+      - "traefik.http.services.sonarr.loadbalancer.server.port=8989"
+      - "traefik.docker.network=proxy"
+    networks:
+      - proxy
+  
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:2.0.5
+    container_name: prowlarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - ./configs/prowlarr:/config
+    ports:
+      - 9696:9696
+    restart: no
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prowlarr.entrypoints=http"
+      - "traefik.http.routers.prowlarr.rule=Host(`prowlarr.local.zeebali.com`)"
+      - "traefik.http.middlewares.prowlarr-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.prowlarr.middlewares=prowlarr-https-redirect"
+      - "traefik.http.routers.prowlarr-secure.entrypoints=https"
+      - "traefik.http.routers.prowlarr-secure.rule=Host(`prowlarr.local.zeebali.com`)"
+      - "traefik.http.routers.prowlarr-secure.tls=true"
+      - "traefik.http.routers.prowlarr-secure.service=prowlarr"
+      - "traefik.http.services.prowlarr.loadbalancer.server.port=9696"
+      - "traefik.docker.network=proxy"
+    networks:
+      - proxy
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:5.27.5
+    container_name: radarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - ./configs/radarr:/config
+      - /mnt/truenas/downloads:/downloads
+    ports:
+      - 7878:7878
+    restart: no
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.radarr.entrypoints=http"
+      - "traefik.http.routers.radarr.rule=Host(`radarr.local.zeebali.com`)"
+      - "traefik.http.middlewares.radarr-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.radarr.middlewares=radarr-https-redirect"
+      - "traefik.http.routers.radarr-secure.entrypoints=https"
+      - "traefik.http.routers.radarr-secure.rule=Host(`radarr.local.zeebali.com`)"
+      - "traefik.http.routers.radarr-secure.tls=true"
+      - "traefik.http.routers.radarr-secure.service=radarr"
+      - "traefik.http.services.radarr.loadbalancer.server.port=7878"
+      - "traefik.docker.network=proxy"
+    networks:
+      - proxy
+
+  jellyseerr:
+    image: fallenbagel/jellyseerr:latest
+    container_name: jellyseerr
+    environment:
+      - LOG_LEVEL=debug
+      - TZ=Etc/UTC
+    ports:
+      - 5055:5055
+    volumes:
+      - ./configs/jellyseer-config:/app/config
+    restart: no
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8 
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jellyseerr.entrypoints=http"
+      - "traefik.http.routers.jellyseerr.rule=Host(`jellyseerr.local.zeebali.com`)"
+      - "traefik.http.middlewares.jellyseerr-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.jellyseerr.middlewares=jellyseerr-https-redirect"
+      - "traefik.http.routers.jellyseerr-secure.entrypoints=https"
+      - "traefik.http.routers.jellyseerr-secure.rule=Host(`jellyseerr.local.zeebali.com`)"
+      - "traefik.http.routers.jellyseerr-secure.tls=true"
+      - "traefik.http.routers.jellyseerr-secure.service=jellyseerr"
+      - "traefik.http.services.jellyseerr.loadbalancer.server.port=5055"
+      - "traefik.docker.network=proxy"
+    networks:
+      - proxy
+
+  unpackerr:
+    image: golift/unpackerr
+    container_name: unpackerr
+    volumes:
+      - /mnt/truenas/downloads:/downloads
+    restart: no
+    user: 1000:1000
+    environment:
+      # Sonarr Config
+      - UN_SONARR_0_URL=http://192.168.69.159:8989
+      - UN_SONARR_0_API_KEY=${UN_SONARR_0_API_KEY}
+      - UN_SONARR_0_PATHS_0=/downloads
+      - UN_SONARR_0_PROTOCOLS=torrent,usenet
+      - UN_SONARR_0_TIMEOUT=10s
+      - UN_SONARR_0_DELETE_ORIG=false
+      - UN_SONARR_0_DELETE_DELAY=5m
+      # Radarr Config
+      - UN_RADARR_0_URL=http://192.168.69.159:7878
+      - UN_RADARR_0_API_KEY=${UN_RADARR_0_API_KEY}
+      - UN_RADARR_0_PATHS_0=/downloads
+      - UN_RADARR_0_PROTOCOLS=torrent,usenet
+      - UN_RADARR_0_TIMEOUT=10s
+      - UN_RADARR_0_DELETE_ORIG=false
+      - UN_RADARR_0_DELETE_DELAY=5m
+    networks:
+      - proxy
+
+  flaresolverr:
+    # DockerHub mirror flaresolverr/flaresolverr:latest
+    image: ghcr.io/flaresolverr/flaresolverr:v3.3.17
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_HTML=${LOG_HTML:-false}
+      - CAPTCHA_SOLVER=${CAPTCHA_SOLVER:-none}
+      - TZ=Europe/London
+    ports:
+      - "${PORT:-8191}:8191"
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.flaresolverr.entrypoints=http"
+      - "traefik.http.routers.flaresolverr.rule=Host(`flaresolverr.local.zeebali.com`)"
+      - "traefik.http.middlewares.flaresolverr-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.flaresolverr.middlewares=flaresolverr-https-redirect"
+      - "traefik.http.routers.flaresolverr-secure.entrypoints=https"
+      - "traefik.http.routers.flaresolverr-secure.rule=Host(`flaresolverr.local.zeebali.com`)"
+      - "traefik.http.routers.flaresolverr-secure.tls=true"
+      - "traefik.http.routers.flaresolverr-secure.service=flaresolverr"
+      - "traefik.http.services.flaresolverr.loadbalancer.server.port=8191"
+      - "traefik.docker.network=proxy"
+    networks:
+      - proxy
+
+  unmonitorr:
+    image: shraymonks/unmonitorr:v2.1.0
+    environment:
+      SERVICES: jellyfin
+      PLEX_EVENTS: media.play
+      RADARR_HOST: http://192.168.50.159:7878
+      RADARR_API_KEY: "${UN_RADARR_0_API_KEY}"
+      SONARR_HOST: http://192.168.50.159:8989
+      SONARR_API_KEY: "${UN_RADARR_0_API_KEY}"
+      EXCLUSION_TAG: unmonitorr-exclude
+    ports:
+      - 9797:9797
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.unmonitorr.entrypoints=http"
+      - "traefik.http.routers.unmonitorr.rule=Host(`unmonitorr.local.zeebali.com`)"
+      - "traefik.http.middlewares.unmonitorr-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.unmonitorr.middlewares=unmonitorr-https-redirect"
+      - "traefik.http.routers.unmonitorr-secure.entrypoints=https"
+      - "traefik.http.routers.unmonitorr-secure.rule=Host(`unmonitorr.local.zeebali.com`)"
+      - "traefik.http.routers.unmonitorr-secure.tls=true"
+      - "traefik.http.routers.unmonitorr-secure.service=unmonitorr"
+      - "traefik.http.services.unmonitorr.loadbalancer.server.port=9797"
+      - "traefik.docker.network=proxy"
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
