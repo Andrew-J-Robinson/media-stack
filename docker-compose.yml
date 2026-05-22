@@ -3,7 +3,7 @@
 version: "3"
 services:
   gluetun:
-    image: qmcgaw/gluetun:latest
+    image: qmcgaw/gluetun:pr-3208
     container_name: gluetun
     cap_add:
       - NET_ADMIN
@@ -11,8 +11,12 @@ services:
       - VPN_SERVICE_PROVIDER=airvpn
       - SERVER_COUNTRIES=United States
       - OPENVPN_CIPHERS=AES-256-GCM
-      - FIREWALL_VPN_INPUT_PORTS=51093
-      - VPN_TYPE=openvpn
+      - FIREWALL_VPN_INPUT_PORTS=38563
+        #- VPN_TYPE=openvpn
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - WIREGUARD_PRESHARED_KEY=${WIREGUARD_PRESHARED_KEY}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
     ports:
       - 8181:8181/tcp   # <-- ports go here, not in bittorent service
       - 51413:51413/tcp
@@ -20,7 +24,7 @@ services:
       - 6881:6881
       - 6881:6881/udp
     volumes:
-      - ./configs/openvpn:/gluetun 
+      - /home/andrew/containers/media-stack/configs/openvpn:/gluetun 
     restart: no
     labels:
       - "traefik.enable=true"
@@ -47,12 +51,12 @@ services:
       - TZ=Etc/UTC
       - WEBUI_PORT=8181
     volumes:
-      - ./configs/qbittorrent:/config
-      - /mnt/truenas/downloads/:/downloads
+      - /home/andrew/containers/media-stack/configs/qbittorrent:/config
+      - /mnt/truenas/downloads:/downloads
     restart: no
 
   jellyfin:
-    image: lscr.io/linuxserver/jellyfin:latest
+    image: lscr.io/linuxserver/jellyfin:10.11.0
     container_name: jellyfin
     environment:
       - PUID=1000
@@ -61,8 +65,8 @@ services:
       # Docker mod for Intel Nuc
       - DOCKER_MODS=linuxserver/mods:jellyfin-opencl-intel
     volumes:
-      - ./configs/jellyfin:/config
-      - /mnt/truenas/downloads/media/:/data/
+      - /home/andrew/containers/media-stack/configs/jellyfin:/config
+      - /mnt/truenas/downloads/media:/data
     ports:
       - 8096:8096
       - 8920:8920 #optional
@@ -87,7 +91,7 @@ services:
       - proxy
 
   sonarr:
-    image: linuxserver/sonarr:4.0.15
+    image: linuxserver/sonarr:4.0.17
     container_name: sonarr
     restart: no
     environment:
@@ -96,7 +100,7 @@ services:
       - PGID=1000 # Group ID to run as
     volumes:
       - /mnt/truenas/downloads:/downloads # Location of all your media
-      - ./configs/sonarr:/config # Contains all relevant configuration files.
+      - /home/andrew/containers/media-stack/configs/sonarr:/config # Contains all relevant configuration files.
     ports:
       - 8989:8989/tcp # Web UI
     labels:
@@ -115,14 +119,14 @@ services:
       - proxy
   
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:2.0.5
+    image: lscr.io/linuxserver/prowlarr:2.3.5.5327-ls142
     container_name: prowlarr
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=Etc/UTC
     volumes:
-      - ./configs/prowlarr:/config
+      - /home/andrew/containers/media-stack/configs/prowlarr:/config
     ports:
       - 9696:9696
     restart: no
@@ -142,14 +146,14 @@ services:
       - proxy
 
   radarr:
-    image: lscr.io/linuxserver/radarr:5.27.5
+    image: lscr.io/linuxserver/radarr:6.1.1
     container_name: radarr
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=Etc/UTC
     volumes:
-      - ./configs/radarr:/config
+      - /home/andrew/containers/media-stack/configs/radarr:/config
       - /mnt/truenas/downloads:/downloads
     ports:
       - 7878:7878
@@ -169,37 +173,67 @@ services:
     networks:
       - proxy
 
-  jellyseerr:
-    image: fallenbagel/jellyseerr:latest
-    container_name: jellyseerr
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    ports:
+      - 6767:6767
+    volumes:
+      - /home/andrew/containers/media-stack/configs/bazarr:/config
+      - /mnt/truenas/downloads/media/movies:/movies
+      - /mnt/truenas/downloads/media/tv:/tv
+      - /mnt/truenas/downloads/media/anime:/anime
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.bazarr.entrypoints=http"
+      - "traefik.http.routers.bazarr.rule=Host(`bazarr.local.zeebali.com`)"
+      - "traefik.http.middlewares.bazarr-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.bazarr.middlewares=bazarr-https-redirect"
+      - "traefik.http.routers.bazarr-secure.entrypoints=https"
+      - "traefik.http.routers.bazarr-secure.rule=Host(`bazarr.local.zeebali.com`)"
+      - "traefik.http.routers.bazarr-secure.tls=true"
+      - "traefik.http.routers.bazarr-secure.service=bazarr"
+      - "traefik.http.services.bazarr.loadbalancer.server.port=6767"
+      - "traefik.docker.network=proxy"
+    networks:
+      - proxy
+
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    container_name: seerr
     environment:
       - LOG_LEVEL=debug
       - TZ=Etc/UTC
     ports:
       - 5055:5055
     volumes:
-      - ./configs/jellyseer-config:/app/config
+      - /home/andrew/containers/media-stack/configs/jellyseer-config:/app/config
     restart: no
     dns:
       - 1.1.1.1
       - 8.8.8.8 
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.jellyseerr.entrypoints=http"
-      - "traefik.http.routers.jellyseerr.rule=Host(`jellyseerr.local.zeebali.com`)"
-      - "traefik.http.middlewares.jellyseerr-https-redirect.redirectscheme.scheme=https"
-      - "traefik.http.routers.jellyseerr.middlewares=jellyseerr-https-redirect"
-      - "traefik.http.routers.jellyseerr-secure.entrypoints=https"
-      - "traefik.http.routers.jellyseerr-secure.rule=Host(`jellyseerr.local.zeebali.com`)"
-      - "traefik.http.routers.jellyseerr-secure.tls=true"
-      - "traefik.http.routers.jellyseerr-secure.service=jellyseerr"
-      - "traefik.http.services.jellyseerr.loadbalancer.server.port=5055"
+      - "traefik.http.routers.seerr.entrypoints=http"
+      - "traefik.http.routers.seerr.rule=Host(`seerr.local.zeebali.com`)"
+      - "traefik.http.middlewares.seerr-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.seerr.middlewares=seerr-https-redirect"
+      - "traefik.http.routers.seerr-secure.entrypoints=https"
+      - "traefik.http.routers.seerr-secure.rule=Host(`seerr.local.zeebali.com`)"
+      - "traefik.http.routers.seerr-secure.tls=true"
+      - "traefik.http.routers.seerr-secure.service=seerr"
+      - "traefik.http.services.seerr.loadbalancer.server.port=5055"
       - "traefik.docker.network=proxy"
     networks:
       - proxy
 
   unpackerr:
-    image: golift/unpackerr
+    image: golift/unpackerr:latest
     container_name: unpackerr
     volumes:
       - /mnt/truenas/downloads:/downloads
@@ -227,7 +261,7 @@ services:
 
   flaresolverr:
     # DockerHub mirror flaresolverr/flaresolverr:latest
-    image: ghcr.io/flaresolverr/flaresolverr:v3.3.17
+    image: ghcr.io/flaresolverr/flaresolverr:v3.4.6
     container_name: flaresolverr
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
